@@ -1,0 +1,51 @@
+# Smoke-test config — small / fast end-to-end run to validate the pipeline.
+
+paths:
+  input_colmap: /home/mas/data/sensyn/sensyn_office/20260423_064959_office/colmap
+  output_dir:   /home/mas/proj/study/gsplat/output/sensyn_office_smoke
+
+intrinsics:
+  mode: average
+  single_camera: true
+  model: PINHOLE
+  max_relative_stdev: 0.01
+
+colmap:
+  max_num_features: 4096
+  use_gpu: true
+  seq_overlap: 3
+  seq_quadratic_overlap: false
+  loop_detection: false
+  refine_focal_length: false
+  refine_principal_point: false
+  refine_extra_params: false
+  refine_extrinsics: true
+  refine_points3D: true
+  ba_max_iterations: 20
+
+lidar:
+  concat_into_refined: true
+  source: sparse/0/points3D.txt
+
+gsplat:
+  data_factor: 1
+  max_steps: 200
+  eval_steps: [200]
+  save_steps: [200]
+  test_every: 8
+  strategy: default
+  mcmc_cap_max: 1000000
+  sh_degree: 3
+  normalize_world_space: true
+  pose_opt: false
+  pose_opt_lr: 1.0e-5
+  disable_viewer: true
+  port: 8081
+
+runtime:
+  cuda_visible_devices: "0"
+  alloc_conf: "expandable_segments:True"
+
+eval:
+  metrics: [psnr, ssim, lpips]
+  out_json: pipeline_results.json

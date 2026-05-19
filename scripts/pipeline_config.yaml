@@ -1,0 +1,65 @@
+# Pipeline config for COLMAP refinement + gsplat training on iPhone-LIDAR data.
+# All outputs go under paths.output_dir. The input directory is never touched.
+
+paths:
+  input_colmap: /home/mas/data/sensyn/sensyn_office/20260423_064959_office/colmap
+  output_dir:   /home/mas/proj/study/gsplat/output/sensyn_office
+  # Layout under output_dir:
+  #   sparse/0/{cameras,images,points3D}.txt   refined COLMAP
+  #   images/                                  symlink to <input_colmap>/images
+  #   colmap.db                                pycolmap database
+  #   gsplat/{ckpts,renders,stats,tb}          gsplat training output
+  #   pipeline_results.json                    final summary
+
+intrinsics:
+  mode: average            # only "average" supported
+  single_camera: true
+  model: PINHOLE
+  max_relative_stdev: 0.01 # abort if observed stdev/mean > 1% on any axis
+
+colmap:
+  max_num_features: 8192
+  use_gpu: true
+  seq_overlap: 10
+  seq_quadratic_overlap: true
+  loop_detection: false    # enable for walks with revisits; expensive
+  refine_focal_length: false
+  refine_principal_point: false
+  refine_extra_params: false
+  refine_extrinsics: true
+  refine_points3D: true
+  ba_max_iterations: 100
+
+lidar:
+  # After BA produces feature-triangulated 3D points, ALSO append the original
+  # LIDAR-derived points (preserving their colors) into the refined points3D.txt.
+  # iPhone LIDAR depth range is already bounded by the sensor; no extra filter.
+  concat_into_refined: true
+  source: sparse/0/points3D.txt   # relative to paths.input_colmap
+
+gsplat:
+  data_factor: 1
+  max_steps: 30000
+  # eval_steps: trainer computes PSNR/SSIM/LPIPS on the val split at each step
+  # and writes val_step{N}.json. ~10 samples gives a training curve.
+  eval_steps: [3000, 6000, 9000, 12000, 15000, 18000, 21000, 24000, 27000, 30000]
+  save_steps: [30000]
+  # test_every: train/val split ratio. Every Nth image is held out as val.
+  test_every: 8
+  strategy: default        # "default" | "mcmc"
+  mcmc_cap_max: 2000000    # only used if strategy == mcmc
+  sh_degree: 3
+  normalize_world_space: true
+  pose_opt: false
+  pose_opt_lr: 1.0e-5
+  # Viewer on by default at http://localhost:<port> so you can watch training.
+  disable_viewer: false
+  port: 8080
+
+runtime:
+  cuda_visible_devices: "0"
+  alloc_conf: "expandable_segments:True"
+
+eval:
+  metrics: [psnr, ssim, lpips]
+  out_json: pipeline_results.json
