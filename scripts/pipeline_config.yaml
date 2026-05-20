@@ -3,8 +3,12 @@
 
 paths:
   input_colmap: /home/mas/data/sensyn/sensyn_office/20260423_064959_office/colmap
+  # output_dir here is the BASE name (a dataname tag). At run time the
+  # orchestrator appends `_<YYYYMMDD_HHMMSS>`, so each invocation writes to
+  # a fresh dir like `output/sensyn_office_20260520_181502/`. To resume an
+  # existing run, pass `--output-dir <path>` on the CLI.
   output_dir:   /home/mas/proj/study/gsplat/output/sensyn_office
-  # Layout under output_dir:
+  # Layout under the resolved output_dir:
   #   sparse/0/{cameras,images,points3D}.txt   refined COLMAP
   #   images/                                  symlink to <input_colmap>/images
   #   colmap.db                                pycolmap database

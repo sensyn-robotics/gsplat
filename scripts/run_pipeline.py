@@ -24,6 +24,7 @@ import dataclasses
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -230,11 +231,23 @@ def main_cli() -> int:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--force", action="store_true", help="re-run all stages, ignore existing outputs")
     parser.add_argument("--dry-run", action="store_true", help="parse config + validate paths only")
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="override output dir; bypasses the dataname_<timestamp> auto-suffix. "
+        "Use this to resume an existing run (will then honor skip-if-exists).",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     input_colmap = Path(cfg["paths"]["input_colmap"]).resolve()
-    output_dir = Path(cfg["paths"]["output_dir"]).resolve()
+    if args.output_dir is not None:
+        output_dir = args.output_dir.resolve()
+    else:
+        base = Path(cfg["paths"]["output_dir"]).resolve()
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = base.with_name(f"{base.name}_{stamp}")
 
     if not (input_colmap / "images").exists():
         print(f"ERROR: {input_colmap}/images not found", file=sys.stderr)

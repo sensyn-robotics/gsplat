@@ -2,6 +2,7 @@
 
 paths:
   input_colmap: /home/mas/data/sensyn/sensyn_office/20260423_064959_office/colmap
+  # Base name; orchestrator appends `_<YYYYMMDD_HHMMSS>` per run.
   output_dir:   /home/mas/proj/study/gsplat/output/sensyn_office_smoke
 
 intrinsics:
