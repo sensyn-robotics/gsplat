@@ -117,6 +117,9 @@ def stage_colmap(
                     print(f"[colmap] {refined_points} non-empty, skipping (use --force)")
                     return None
 
+    priors_csv = cfg.get("position_priors_csv")
+    if priors_csv is not None:
+        priors_csv = Path(priors_csv).expanduser().resolve()
     colmap_cfg = ColmapConfig(
         max_num_features=cfg["max_num_features"],
         use_gpu=cfg["use_gpu"],
@@ -129,6 +132,8 @@ def stage_colmap(
         refine_extrinsics=cfg["refine_extrinsics"],
         refine_points3D=cfg["refine_points3D"],
         ba_max_iterations=cfg["ba_max_iterations"],
+        position_priors_csv=priors_csv,
+        position_prior_variance=float(cfg.get("position_prior_variance", 0.01)),
     )
     return refine(
         image_dir=image_dir,

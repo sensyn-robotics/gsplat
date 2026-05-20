@@ -23,6 +23,8 @@ colmap:
   refine_extrinsics: true
   refine_points3D: true
   ba_max_iterations: 20
+  position_priors_csv: /home/mas/data/sensyn/sensyn_office/20260423_064959_office/poses.csv
+  position_prior_variance: 0.01
 
 lidar:
   concat_into_refined: true

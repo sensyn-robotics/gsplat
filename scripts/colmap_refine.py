@@ -1,13 +1,16 @@
 """COLMAP refinement stage: SIFT features → sequential matching →
-incremental SfM (full mapping) → bundle adjustment.
+incremental SfM with optional pose-position priors → bundle adjustment.
 
 The user-supplied PINHOLE intrinsics are seeded into the COLMAP DB at feature
 extraction time (CameraMode.SINGLE + `camera_params=<avg fx,fy,cx,cy>`) and
-held fixed during BA (`ba_refine_focal_length=False`, etc.). Poses + 3D points
-are recovered freshly by incremental_mapping; the smartphone pose priors are
-only used to set initial intrinsics, not as fixed poses (pycolmap 4.x's
-triangulate_points pathway requires DB-generated frame structures that
-text-read reconstructions don't match cleanly).
+held fixed during BA (`ba_refine_focal_length=False`, etc.).
+
+If a `position_priors` mapping (image name → (x, y, z)) is provided, the
+prior camera positions are written into the COLMAP DB as `PosePrior` rows
+tied to each image's frame, and `use_prior_position=True` is enabled on
+the incremental pipeline. BA then adds a per-camera residual
+`|| t_estimated − t_prior ||² / cov` that biases the reconstruction toward
+the priors and helps connect frames the sequential matcher could not.
 
 Uses modern pycolmap 4.x. The `scene_manager_compat` adapter is registered
 elsewhere for gsplat downstream; this module itself does not depend on it.
@@ -15,9 +18,11 @@ elsewhere for gsplat downstream; this module itself does not depend on it.
 
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
+import numpy as np
 import pycolmap
 
 from intrinsics_utils import AveragedIntrinsics
@@ -36,6 +41,12 @@ class ColmapConfig:
     refine_extrinsics: bool = True
     refine_points3D: bool = True
     ba_max_iterations: int = 100
+    # Pose-position priors (e.g. from ARKit). Path to a CSV with columns at
+    # least `frame, x, y, z`. Set to None to disable. The image name in the
+    # COLMAP DB is matched against `f"{row['frame']}.png"`.
+    position_priors_csv: Path | None = None
+    # Variance per axis (m²) for the position prior covariance (diagonal).
+    position_prior_variance: float = 0.01
 
 
 @dataclass
@@ -59,6 +70,43 @@ def _count_db_rows(db_path: Path, table: str) -> int:
     finally:
         con.close()
     return int(n)
+
+
+def _load_position_priors(csv_path: Path) -> dict[str, tuple[float, float, float]]:
+    out: dict[str, tuple[float, float, float]] = {}
+    with open(csv_path) as f:
+        for row in csv.DictReader(f):
+            name = f"{row['frame']}.png"
+            out[name] = (float(row["x"]), float(row["y"]), float(row["z"]))
+    return out
+
+
+def _write_pose_priors_to_db(
+    db_path: Path,
+    priors: dict[str, tuple[float, float, float]],
+    variance_per_axis: float,
+) -> int:
+    db = pycolmap.Database.open(str(db_path))
+    try:
+        db.clear_pose_priors()
+        cov = np.eye(3, dtype=np.float64) * variance_per_axis
+        n = 0
+        for img in db.read_all_images():
+            if img.name not in priors:
+                continue
+            frame = db.read_frame(img.frame_id)
+            data_id = next(iter(frame.data_ids))
+            pp = pycolmap.PosePrior(
+                position=np.asarray(priors[img.name], dtype=np.float64),
+                position_covariance=cov,
+                coordinate_system=pycolmap.PosePriorCoordinateSystem.CARTESIAN,
+            )
+            pp.corr_data_id = data_id
+            db.write_pose_prior(pp, use_pose_prior_id=False)
+            n += 1
+        return n
+    finally:
+        db.close()
 
 
 def _patch_db_camera(db_path: Path, intr: AveragedIntrinsics) -> None:
@@ -131,6 +179,15 @@ def refine(
     n_matches_db = _count_db_rows(database_path, "matches")
     print(f"[colmap] DB has {n_features_db} keypoints, {n_matches_db} matched pairs")
 
+    n_priors = 0
+    if cfg.position_priors_csv is not None:
+        priors = _load_position_priors(Path(cfg.position_priors_csv))
+        n_priors = _write_pose_priors_to_db(database_path, priors, cfg.position_prior_variance)
+        print(
+            f"[colmap] wrote {n_priors} pose-position priors "
+            f"(variance/axis={cfg.position_prior_variance} m²)"
+        )
+
     # Run incremental_mapping (full SfM). BA is run repeatedly inside the
     # pipeline; we control which intrinsics it can touch via the pipeline opts.
     pipeline_opts = pycolmap.IncrementalPipelineOptions()
@@ -142,6 +199,7 @@ def refine(
     pipeline_opts.ba_local_max_num_iterations = min(cfg.ba_max_iterations, 25)
     # Single-camera + fixed intrinsics: bake in our averaged values.
     pipeline_opts.constant_cameras = {1}
+    pipeline_opts.use_prior_position = n_priors > 0
 
     sparse_intermediate = sparse_out.parent / f"{sparse_out.name}_mapping"
     sparse_intermediate.mkdir(parents=True, exist_ok=True)
