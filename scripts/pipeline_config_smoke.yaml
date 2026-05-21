@@ -48,6 +48,9 @@ gsplat:
 runtime:
   cuda_visible_devices: "0"
   alloc_conf: "expandable_segments:True"
+  min_free_gpu_mb: 1500
+  gpu_poll_seconds: 10
+  gpu_wait_timeout_seconds: 600
 
 eval:
   metrics: [psnr, ssim, lpips]

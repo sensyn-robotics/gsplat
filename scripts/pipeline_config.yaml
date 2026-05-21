@@ -71,6 +71,13 @@ gsplat:
 runtime:
   cuda_visible_devices: "0"
   alloc_conf: "expandable_segments:True"
+  # Pre-flight GPU memory check (guards against OOM on a shared GPU).
+  # The orchestrator polls nvidia-smi BEFORE importing torch and blocks
+  # until `min_free_gpu_mb` is available. Set min_free_gpu_mb to 0 to
+  # disable the check.
+  min_free_gpu_mb: 5000        # 5 GiB free before training starts
+  gpu_poll_seconds: 30         # how often to re-check
+  gpu_wait_timeout_seconds: 7200   # bail out after 2 h of waiting
 
 eval:
   metrics: [psnr, ssim, lpips]

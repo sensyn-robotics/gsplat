@@ -23,7 +23,9 @@ import argparse
 import dataclasses
 import json
 import os
+import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -167,6 +169,57 @@ def stage_lidar(input_colmap: Path, output_sparse: Path, cfg: dict, force: bool)
     return n_refined, n_lidar
 
 
+def _gpu_free_mb(device_index: int = 0) -> int | None:
+    """Query free memory on the GPU via nvidia-smi. None if smi is unavailable."""
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                f"--id={device_index}",
+                "--query-gpu=memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return int(out.splitlines()[0])
+    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+        return None
+
+
+def _wait_for_gpu(min_free_mb: int, poll_seconds: int, timeout_seconds: int, device_index: int = 0) -> None:
+    """Block until `min_free_mb` is free on the GPU, or raise on timeout.
+
+    The previous OOM happened because another training was holding 10.5 GB of
+    11.6 GB at the exact moment we tried to start gsplat — leaving only 20 MB
+    free. This pre-flight check ensures we never launch into a clearly
+    insufficient memory state.
+    """
+    if min_free_mb <= 0:
+        return  # disabled
+    deadline = time.monotonic() + max(1, timeout_seconds)
+    first = True
+    while True:
+        free = _gpu_free_mb(device_index)
+        if free is None:
+            print(f"[gsplat] nvidia-smi unavailable; skipping GPU memory pre-flight")
+            return
+        if free >= min_free_mb:
+            print(f"[gsplat] GPU{device_index} free={free} MiB >= required {min_free_mb} MiB; proceeding")
+            return
+        if first:
+            print(
+                f"[gsplat] GPU{device_index} free={free} MiB < required {min_free_mb} MiB; "
+                f"waiting (poll every {poll_seconds}s, timeout {timeout_seconds}s)"
+            )
+            first = False
+        if time.monotonic() > deadline:
+            raise RuntimeError(
+                f"GPU{device_index} still has only {free} MiB free after waiting "
+                f"{timeout_seconds}s (needed {min_free_mb}); aborting before OOM."
+            )
+        time.sleep(max(1, poll_seconds))
+
+
 def stage_gsplat(output_dir: Path, cfg: dict, runtime_cfg: dict, force: bool) -> dict:
     gsplat_result_dir = output_dir / "gsplat"
     final_stats = gsplat_result_dir / "stats" / f"val_step{cfg['max_steps'] - 1:04d}.json"
@@ -176,6 +229,17 @@ def stage_gsplat(output_dir: Path, cfg: dict, runtime_cfg: dict, force: bool) ->
 
     os.environ["CUDA_VISIBLE_DEVICES"] = runtime_cfg["cuda_visible_devices"]
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = runtime_cfg["alloc_conf"]
+
+    # Pre-flight: don't start torch + gsplat if the GPU is starved by another
+    # process. This guards against the OOM we hit on a shared GPU. Disable by
+    # setting `runtime.min_free_gpu_mb: 0` in the YAML.
+    device_index = int(str(runtime_cfg["cuda_visible_devices"]).split(",")[0])
+    _wait_for_gpu(
+        min_free_mb=int(runtime_cfg.get("min_free_gpu_mb", 5000)),
+        poll_seconds=int(runtime_cfg.get("gpu_poll_seconds", 30)),
+        timeout_seconds=int(runtime_cfg.get("gpu_wait_timeout_seconds", 7200)),
+        device_index=device_index,
+    )
 
     # Late imports so env vars apply before torch sees the GPU.
     examples_dir = SCRIPT_DIR.parent / "examples"
