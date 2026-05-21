@@ -7,7 +7,7 @@ paths:
   # orchestrator appends `_<YYYYMMDD_HHMMSS>`, so each invocation writes to
   # a fresh dir like `output/sensyn_office_20260520_181502/`. To resume an
   # existing run, pass `--output-dir <path>` on the CLI.
-  output_dir:   /home/mas/proj/study/gsplat/output/sensyn_office
+  output_dir:   /home/mas/proj/sensyn/gsplat/output/sensyn_office
   # Layout under the resolved output_dir:
   #   sparse/0/{cameras,images,points3D}.txt   refined COLMAP
   #   images/                                  symlink to <input_colmap>/images
