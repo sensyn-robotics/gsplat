@@ -1,0 +1,63 @@
+# exp6: full stack — LIDAR + ARKit priors (var=0.10) + MCMC + PPISP.
+# Combines every knob. Expected most-expensive memory footprint of the campaign.
+# If OOM occurs, drop mcmc_cap_max to 600000.
+
+paths:
+  input_colmap: /home/mas/data/sensyn/sensyn_office/20260423_064959_office/colmap
+  output_dir:   /home/mas/proj/sensyn/gsplat/output/sensyn_office_exp6_full_mcmc_ppisp_var10
+
+intrinsics:
+  mode: average
+  single_camera: true
+  model: PINHOLE
+  max_relative_stdev: 0.01
+
+colmap:
+  max_num_features: 8192
+  use_gpu: true
+  seq_overlap: 10
+  seq_quadratic_overlap: true
+  loop_detection: false
+  refine_focal_length: false
+  refine_principal_point: false
+  refine_extra_params: false
+  refine_extrinsics: true
+  refine_points3D: true
+  ba_max_iterations: 100
+  position_priors_csv: /home/mas/data/sensyn/sensyn_office/20260423_064959_office/poses.csv
+  position_prior_variance: 0.10
+
+lidar:
+  concat_into_refined: true
+  source: sparse/0/points3D.txt
+
+gsplat:
+  data_factor: 1
+  max_steps: 30000
+  eval_steps: [3000, 6000, 9000, 12000, 15000, 18000, 21000, 24000, 27000, 30000]
+  save_steps: [30000]
+  test_every: 8
+  strategy: mcmc
+  mcmc_cap_max: 1000000
+  sh_degree: 3
+  normalize_world_space: true
+  pose_opt: false
+  pose_opt_lr: 1.0e-5
+  disable_viewer: true
+  port: 8080
+  post_processing: ppisp
+  ppisp_use_controller: true
+  ppisp_controller_distillation: true
+  ppisp_controller_activation_num_steps: 25000
+
+runtime:
+  cuda_visible_devices: "0"
+  alloc_conf: "expandable_segments:True"
+  min_free_gpu_mb: 10000
+  gpu_poll_seconds: 30
+  gpu_wait_timeout_seconds: 14400
+  reserve_gpu_mb: 10000
+
+eval:
+  metrics: [psnr, ssim, lpips]
+  out_json: pipeline_results.json

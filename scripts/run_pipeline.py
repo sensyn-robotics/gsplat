@@ -299,6 +299,14 @@ def stage_gsplat(output_dir: Path, cfg: dict, runtime_cfg: dict, force: bool) ->
         # openable in SuperSplat / MeshLab / CloudCompare without manual
         # ckpt-to-ply conversion.
         save_ply=True,
+        # Optional per-image post-processing module (e.g. PPISP for
+        # auto-exposure compensation). Set `post_processing: ppisp` in the
+        # YAML to enable. PPISP requires batch_size=1, MCMCStrategy, and
+        # single-GPU — asserted inside simple_trainer.
+        post_processing=cfg.get("post_processing"),
+        ppisp_use_controller=bool(cfg.get("ppisp_use_controller", True)),
+        ppisp_controller_distillation=bool(cfg.get("ppisp_controller_distillation", True)),
+        ppisp_controller_activation_num_steps=int(cfg.get("ppisp_controller_activation_num_steps", 25_000)),
     )
     gs_cfg.adjust_steps(gs_cfg.steps_scaler)
 
