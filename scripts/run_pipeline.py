@@ -295,6 +295,10 @@ def stage_gsplat(output_dir: Path, cfg: dict, runtime_cfg: dict, force: bool) ->
         # (only some images registered); the trained model + metrics are
         # already saved before this step, so we skip the optional video.
         disable_video=True,
+        # Always emit PLY at each save_step so the gaussians are immediately
+        # openable in SuperSplat / MeshLab / CloudCompare without manual
+        # ckpt-to-ply conversion.
+        save_ply=True,
     )
     gs_cfg.adjust_steps(gs_cfg.steps_scaler)
 
