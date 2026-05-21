@@ -51,6 +51,7 @@ runtime:
   min_free_gpu_mb: 1500
   gpu_poll_seconds: 10
   gpu_wait_timeout_seconds: 600
+  reserve_gpu_mb: 1500
 
 eval:
   metrics: [psnr, ssim, lpips]

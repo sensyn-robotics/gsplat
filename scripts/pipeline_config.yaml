@@ -78,6 +78,11 @@ runtime:
   min_free_gpu_mb: 5000        # 5 GiB free before training starts
   gpu_poll_seconds: 30         # how often to re-check
   gpu_wait_timeout_seconds: 7200   # bail out after 2 h of waiting
+  # After the wait passes, immediately claim this many MiB through PyTorch's
+  # caching allocator so a competing process can't grab the memory in the
+  # race window between the check and our first real allocation. Defaults to
+  # min_free_gpu_mb. Set to 0 to disable.
+  reserve_gpu_mb: 5000
 
 eval:
   metrics: [psnr, ssim, lpips]

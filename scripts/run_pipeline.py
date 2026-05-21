@@ -234,12 +234,31 @@ def stage_gsplat(output_dir: Path, cfg: dict, runtime_cfg: dict, force: bool) ->
     # process. This guards against the OOM we hit on a shared GPU. Disable by
     # setting `runtime.min_free_gpu_mb: 0` in the YAML.
     device_index = int(str(runtime_cfg["cuda_visible_devices"]).split(",")[0])
+    min_free_mb = int(runtime_cfg.get("min_free_gpu_mb", 5000))
     _wait_for_gpu(
-        min_free_mb=int(runtime_cfg.get("min_free_gpu_mb", 5000)),
+        min_free_mb=min_free_mb,
         poll_seconds=int(runtime_cfg.get("gpu_poll_seconds", 30)),
         timeout_seconds=int(runtime_cfg.get("gpu_wait_timeout_seconds", 7200)),
         device_index=device_index,
     )
+
+    # Race-condition guard: a competing process could grab memory between
+    # the check and our first real allocation. Claim our share NOW by
+    # allocating a tensor and letting it fall out of scope — PyTorch's
+    # caching allocator keeps the bytes in-process so other processes can't
+    # reach them. (Crucially we do NOT call `torch.cuda.empty_cache()`; that
+    # would release back to the driver and undo the reservation.)
+    # Disable by setting `runtime.reserve_gpu_mb: 0`.
+    reserve_mb = int(runtime_cfg.get("reserve_gpu_mb", min_free_mb))
+    if reserve_mb > 0:
+        try:
+            import torch  # late import: avoid CUDA init until after the wait
+            n_floats = reserve_mb * 1024 * 1024 // 4
+            _hold = torch.empty(n_floats, dtype=torch.float32, device=f"cuda:{device_index}")
+            del _hold  # returns to torch's cache, NOT to the CUDA driver
+            print(f"[gsplat] claimed {reserve_mb} MiB in PyTorch's CUDA cache")
+        except Exception as e:
+            print(f"[gsplat] memory reservation skipped ({type(e).__name__}: {e})")
 
     # Late imports so env vars apply before torch sees the GPU.
     examples_dir = SCRIPT_DIR.parent / "examples"
