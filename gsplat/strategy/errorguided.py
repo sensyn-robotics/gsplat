@@ -94,23 +94,31 @@ class ErrorGuidedStrategy(Strategy):
     @torch.no_grad()
     def _refine(self, params, optimizers, state) -> tuple[int, int]:
         device = params["means"].device
-        # 1. prune dead (low-opacity) Gaussians — remove() keeps params/optimizers/state consistent.
-        dead = torch.sigmoid(params["opacities"]) < self.min_opacity
+        opac = torch.sigmoid(params["opacities"])
+        n = len(params["means"])
+
+        # GROWTH phase (below cap): grow toward cap by error-weighted long-axis split of LIVE
+        # Gaussians. NO pruning here — pruning every refine during growth outpaced the +growth_factor
+        # step and net-SHRANK the population (it collapsed to ~9k GS by step 7k, starving training).
+        # Restricting the split to live Gaussians keeps children above min_opacity so they survive.
+        if n < self.cap_max:
+            n_add = min(self.cap_max, math.ceil((1.0 + self.growth_factor) * n)) - n
+            error = state["grad2d"] / state["count"].clamp_min(1)   # mean image-plane error per GS
+            error = torch.where(opac >= self.min_opacity, error, torch.zeros_like(error))
+            live = int((error > 0).sum())
+            if n_add <= 0 or live == 0:
+                return 0, 0
+            idx = _multinomial_sample(error, min(n_add, live), replacement=False)
+            mask = torch.zeros(n, dtype=torch.bool, device=device)
+            mask[idx] = True
+            long_axis_split(params=params, optimizers=optimizers, state=state, mask=mask)
+            return 0, int(mask.sum())
+
+        # AT-CAP refinement: now prune dead; the next refine's growth refills to cap by splitting the
+        # highest-error Gaussians — i.e. dead capacity is recycled toward where the render is wrong
+        # (Spirula's relocate effect), but only once the budget is reached, never starving training.
+        dead = opac < self.min_opacity
         n_dead = int(dead.sum())
         if n_dead > 0:
             remove(params=params, optimizers=optimizers, state=state, mask=dead)
-        # 2. gradual growth to cap_max by ERROR-weighted long-axis split.
-        n = len(params["means"])
-        if n >= self.cap_max:
-            return n_dead, 0
-        n_add = min(self.cap_max, math.ceil((1.0 + self.growth_factor) * n)) - n
-        if n_add <= 0:
-            return n_dead, 0
-        error = state["grad2d"] / state["count"].clamp_min(1)     # mean image-plane error per GS
-        if float(error.sum()) <= 0:                               # no visibility yet — skip
-            return n_dead, 0
-        idx = _multinomial_sample(error, min(n_add, n), replacement=False)
-        mask = torch.zeros(n, dtype=torch.bool, device=device)
-        mask[idx] = True
-        long_axis_split(params=params, optimizers=optimizers, state=state, mask=mask)
-        return n_dead, int(mask.sum())
+        return n_dead, 0
