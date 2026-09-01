@@ -15,4 +15,5 @@
 
 from .base import Strategy
 from .default import DefaultStrategy
+from .errorguided import ErrorGuidedStrategy
 from .mcmc import MCMCStrategy
